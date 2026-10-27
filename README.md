@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="./assets/hero.png" width="100%" alt="楚汉 · xevil3301">
+  <img src="./assets/hero.jpg" width="100%" alt="楚汉 · xevil3301">
 </div>
 
 <div align="center">
