@@ -1,107 +1,104 @@
-"""个人主页头图 v2：左侧大字 + 右侧五个圆形头像（五部动画的「班底」）。
+"""主页头图 · 毛玻璃版（v2：单图渐进模糊）。
 
-v1 试过竖向切片，失败的三个原因
-  1. 左侧要给文字留渐隐，前两张素材直接被压没了 —— 五部动画变三部。
-  2. 罗小黑原图只有 225px，切满高要放大 1.8 倍，糊。
-  3. 五张素材的取景差异太大（全身 / 半身 / 特写），竖条里对不齐。
-所以改成圆形：全部降采样（小图反而最锐）、取景统一、五种画风靠同一个圆环收边。
+v1 的错：底层用「缩放铺满」、上层用「原尺寸贴边」，两层的取景不同，
+拼在一起必然出现一道硬缝 —— 那不是玻璃，那是两张图。
 
-跑法：python scripts/hero.py
+v2 换成：同一张图、同一套几何，只让清晰度从左往右渐变。
+底层和上层来自同一个 cover 裁切，所以过渡带上每一像素都对齐，接缝自然消失。
+
+跑法：python .preview/make-hero-glass.py
 """
 from pathlib import Path
 from PIL import Image, ImageDraw, ImageEnhance, ImageFilter, ImageFont
 
-ATT = Path(r"C:\Users\Administrator\.dsh\attachments\v1\objects")
-
-# (文件, 焦点 cx, 焦点 cy, 方框边长占短边的比例, 亮度校正)
-CAST = [
-    ("33/33d9303e9f491a911a9ab92f7d704d2b50432a239c9eb5baaf9d28fdcfd1f260", 0.471, 0.569, 0.40, 0.96),  # 海绵宝宝
-    ("eb/eb83f0a76fdf07736b913d3335cb02d1d7e3d5aac9ca6104d24dceee35be08b9", 0.53, 0.25, 0.44, 1.02),   # 蜡笔小新
-    ("d9/d9706e15dd7c16e0463e291b73dfdf2b6bdf0912bd49577c30484f42c3de134f", 0.66, 0.27, 0.52, 1.55),   # 猫和老鼠
-    ("5e/5e77f2a16e20e9d812cb6c1e8a33c719b67827d71b127cfce87709ceb10bf625", 0.50, 0.42, 0.92, 1.00),   # 罗小黑
-    ("d0/d070567c155b9059c4088ea60ae9abf68370fd5ee0577f02a0a7b9c83ff598a7", 0.47, 0.36, 0.58, 1.05),   # 刺客伍六七
-]
-
-RING = (255, 255, 255, 92)   # 统一一圈白环，五张图风格才像一套
-
-W, H = 1280, 360
-OUT = Path(__file__).resolve().parent.parent / "assets"
+SRC = Path(r"C:\Users\Administrator\.dsh\attachments\v1\objects\33\33d9303e9f491a911a9ab92f7d704d2b50432a239c9eb5baaf9d28fdcfd1f260")
+OUT = Path(__file__).resolve().parent / "hero-glass.png"
 FONT_BOLD = "C:/Windows/Fonts/segoeuib.ttf"
 FONT_CN_BOLD = "C:/Windows/Fonts/msyhbd.ttc"
 FONT_CN = "C:/Windows/Fonts/msyh.ttc"
 
-D = 100          # 头像直径
-GAP = 20
-SS = 4           # 超采样倍数
+W, H = 1280, 360
+FOCUS_Y = 0.40     # 竖向取景：留头，切脚
+ZOOM = 1.32        # 稍微放大，换来横向移动的自由度
+SUBJECT_AT = 0.62  # 主体（海绵宝宝）落在屏幕宽度的 62% 处，把渐变让到角色之间的空隙
+BLUR = 34          # 毛玻璃模糊半径
+RAMP_FROM, RAMP_TO = 260, 700   # 从左「全模糊」到右「全清晰」的过渡区间
+VEIL_FLAT, VEIL_END = 260, 640  # 文字区先给一段均匀压暗，再渐隐
 
 
-def face_circle(path: Path, cx: float, cy: float, ratio: float, bright: float):
-    img = Image.open(path).convert("RGB")
-    if bright != 1.0:
-        img = ImageEnhance.Brightness(img).enhance(bright)
+def cover(img: Image.Image, w: int, h: int, focus_y: float) -> Image.Image:
     iw, ih = img.size
-    side = min(iw, ih) * ratio
-    left = max(0, min(iw - side, iw * cx - side / 2))
-    top = max(0, min(ih - side, ih * cy - side / 2))
-    sq = img.crop((int(left), int(top), int(left + side), int(top + side)))
-    sq = sq.resize((D * SS, D * SS), Image.LANCZOS)
+    scale = max(w / iw, h / ih) * ZOOM
+    nw, nh = int(iw * scale + 0.5), int(ih * scale + 0.5)
+    resized = img.resize((nw, nh), Image.LANCZOS)
+    # 让原图 42% 处（海绵宝宝）落到 SUBJECT_AT
+    left = int(0.42 * nw - SUBJECT_AT * w)
+    left = max(0, min(nw - w, left))
+    top = int((nh - h) * focus_y)
+    top = max(0, min(nh - h, top))
+    return resized.crop((left, top, left + w, top + h))
 
-    mask = Image.new("L", (D * SS, D * SS), 0)
-    ImageDraw.Draw(mask).ellipse([0, 0, D * SS - 1, D * SS - 1], fill=255)
-    circle = Image.new("RGBA", (D * SS, D * SS), (0, 0, 0, 0))
-    circle.paste(sq, (0, 0), mask)
 
-    # 一圈白环
-    d = ImageDraw.Draw(circle)
-    d.ellipse([0, 0, D * SS - 1, D * SS - 1], outline=RING, width=SS * 2)
-    circle = circle.resize((D, D), Image.LANCZOS)
-
-    # 环外的柔光，让头像在深底上浮起来
-    glow = Image.new("RGBA", (D + 36, D + 36), (0, 0, 0, 0))
-    gd = ImageDraw.Draw(glow)
-    gd.ellipse([18, 18, D + 18, D + 18], fill=(76, 141, 255, 52))
-    glow = glow.filter(ImageFilter.GaussianBlur(10))
-    glow.alpha_composite(circle, (18, 18))
-    return glow
+def smoothstep(t: float) -> float:
+    t = max(0.0, min(1.0, t))
+    return t * t * (3 - 2 * t)
 
 
 def main():
-    canvas = Image.new("RGBA", (W, H), (10, 13, 21, 255))
+    src = Image.open(SRC).convert("RGB")
+    base = cover(src, W, H, FOCUS_Y)
 
-    # 右侧冷光
-    halo = Image.new("L", (W, H), 0)
-    hd = ImageDraw.Draw(halo)
-    hd.ellipse([W * 0.52, -H * 0.5, W * 1.05, H * 1.5], fill=90)
-    halo = halo.filter(ImageFilter.GaussianBlur(70))
-    tint = Image.new("RGBA", (W, H), (48, 96, 200, 255))
-    tint.putalpha(halo)
-    canvas = Image.alpha_composite(canvas, tint)
+    # 毛玻璃层：同一张 base，重模糊 + 压暗 + 偏冷
+    glass = base.filter(ImageFilter.GaussianBlur(BLUR))
+    glass = ImageEnhance.Brightness(glass).enhance(0.52)
+    glass = ImageEnhance.Color(glass).enhance(0.88)
+    glass = Image.blend(glass, Image.new("RGB", (W, H), (16, 24, 46)), 0.30)
 
-    # 头像带：左边界给文字留够，整体靠右
-    total = len(CAST) * D + (len(CAST) - 1) * GAP
-    x0 = 640 + (W - 60 - 640 - total) // 2
-    for i, (rel, cx, cy, ratio, bright) in enumerate(CAST):
-        chip = face_circle(ATT / rel, cx, cy, ratio, bright)
-        x = x0 + i * (D + GAP) - 18
-        y = (H - chip.height) // 2 - 14
-        canvas.alpha_composite(chip, (x, y))
+    # 过渡：左透明（露出玻璃）→ 右不透明（露出清晰原图）
+    mask = Image.new("L", (W, 1), 0)
+    mp = mask.load()
+    for x in range(W):
+        mp[x, 0] = int(255 * smoothstep((x - RAMP_FROM) / (RAMP_TO - RAMP_FROM)))
+    mask = mask.resize((W, H))
+
+    canvas = Image.composite(base.convert("RGBA"), glass.convert("RGBA"), mask)
+
+    # 文字区压暗（只压左侧，右边交给画面）
+    veil = Image.new("L", (W, H), 0)
+    vd = ImageDraw.Draw(veil)
+    for x in range(0, VEIL_END):
+        if x <= VEIL_FLAT:
+            a = 214
+        else:
+            a = int(214 * smoothstep(1 - (x - VEIL_FLAT) / (VEIL_END - VEIL_FLAT)))
+        vd.line([(x, 0), (x, H)], fill=a)
+    dark = Image.new("RGBA", (W, H), (8, 11, 18, 255))
+    dark.putalpha(veil)
+    canvas = Image.alpha_composite(canvas, dark)
+
+    # 极细噪点：大面积模糊渐变会出色带，噪点是唯一便宜的解法，
+    # 顺带让这块区域看起来像「有材质的玻璃」而不是一块糊掉的图。
+    noise = Image.effect_noise((W, H), 26).convert("L")
+    region = Image.new("L", (W, H), 0)
+    rd = ImageDraw.Draw(region)
+    for x in range(0, 900):
+        rd.line([(x, 0), (x, H)], fill=int(255 * max(0.0, 1 - x / 900) ** 0.8))
+    grain_alpha = Image.composite(noise.point(lambda v: int(v * 0.10)), Image.new("L", (W, H), 0), region)
+    grain = Image.new("RGBA", (W, H), (255, 255, 255, 255))
+    grain.putalpha(grain_alpha)
+    canvas = Image.alpha_composite(canvas, grain)
 
     draw = ImageDraw.Draw(canvas)
-    # 头像带下面的小字：说明这五个人是谁
-    caption = "海绵宝宝 · 蜡笔小新 · 猫和老鼠 · 罗小黑 · 刺客伍六七"
-    cap_font = ImageFont.truetype(FONT_CN, 15)
-    cap_w = draw.textlength(caption, font=cap_font)
-    draw.text((x0 + total / 2 - cap_w / 2, 286), caption, font=cap_font, fill=(104, 114, 132))
-
     draw.text((76, 74), "楚汉", font=ImageFont.truetype(FONT_CN_BOLD, 74), fill=(247, 249, 253))
-    draw.text((80, 168), "xevil3301", font=ImageFont.truetype(FONT_BOLD, 27), fill=(110, 152, 230))
-    draw.line([(80, 214), (208, 214)], fill=(76, 141, 255), width=3)
-    draw.text((80, 238), "做点小工具，也做点能用的话", font=ImageFont.truetype(FONT_CN, 22), fill=(180, 189, 204))
+    draw.text((80, 168), "xevil3301", font=ImageFont.truetype(FONT_BOLD, 27), fill=(126, 168, 240))
+    draw.line([(80, 214), (208, 214)], fill=(96, 160, 255), width=3)
+    draw.text((80, 238), "不知名三县城市小镇白日梦想家", font=ImageFont.truetype(FONT_CN, 22), fill=(198, 206, 220))
     draw.text((80, 276), "cw · flashmanager · dsh-chatlock · zufang-guide",
-              font=ImageFont.truetype(FONT_CN, 18), fill=(120, 131, 150))
+              font=ImageFont.truetype(FONT_CN, 18), fill=(140, 150, 168))
 
-    canvas.convert("RGB").save(OUT / "hero.png", optimize=True)
-    print("hero.png", canvas.size)
+    canvas.convert("RGB").save(OUT, optimize=True)
+    canvas.convert("RGB").save(OUT.with_suffix(".jpg"), quality=88, optimize=True, progressive=True)
+    print("hero-glass.png / .jpg", canvas.size)
 
 
 if __name__ == "__main__":
