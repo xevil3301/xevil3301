@@ -3,7 +3,6 @@
 </div>
 
 <div align="center">
-  <a href="https://github.com/xevil3301/cw"><img alt="cw" src="https://img.shields.io/badge/%E6%A5%9A%E4%B9%8C-cw-111111?style=flat-square&labelColor=0b0f16"></a>
   <img alt="Python" src="https://img.shields.io/badge/-Python-3776AB?style=flat-square&logo=python&logoColor=white&labelColor=0b0f16">
   <img alt="TypeScript" src="https://img.shields.io/badge/-TypeScript-3178C6?style=flat-square&logo=typescript&logoColor=white&labelColor=0b0f16">
   <img alt="JavaScript" src="https://img.shields.io/badge/-JavaScript-F7DF1E?style=flat-square&logo=javascript&logoColor=black&labelColor=0b0f16">
